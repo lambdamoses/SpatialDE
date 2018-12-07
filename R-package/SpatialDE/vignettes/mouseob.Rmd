@@ -1,0 +1,143 @@
+---
+title: "SpatialDE on Mouse Olfactory Bulb Data"
+author: "Lambda Moses"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{SpatialDE on Mouse Olfactory Bulb Data}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r}
+library(tidyverse)
+library(varistran)
+library(limma)
+library(reticulate)
+library(gridExtra)
+library(zeallot)
+theme_set(theme_bw())
+use_python("/Users/lambda/anaconda3/bin/python")
+py_config()
+```
+
+```{r}
+gene_counts <- read_csv("../../../Analysis/MouseOB/data/Rep11_MOB_0.csv")
+locations <- read_csv("../../../Analysis/MouseOB/MOB_sample_info.csv")
+gene_counts <- gene_counts %>% 
+  semi_join(locations, by = "X1")
+```
+
+```{r, fig.height=3, fig.align='center'}
+ggplot(locations, aes(x, y)) +
+  geom_point() +
+  coord_equal()
+```
+
+```{r}
+# Remove genes with low expression
+# Total expression
+gene_tot_counts <- colSums(gene_counts[,-1])
+gene_counts <- gene_counts[,c(TRUE, gene_tot_counts >= 3)]
+```
+
+```{r}
+# Normalize data
+dat <- vst(t(as.matrix(gene_counts[,-1])))
+# Regress out total counts
+resid_expr <- t(removeBatchEffect(dat, covariates = log(locations$total_counts)))
+```
+
+```{r}
+# Randomly sample 1000 genes to run SpatialDE
+resid_sub <- resid_expr[,sample(1:ncol(resid_expr), 1000)]
+# Add log total counts as a covariate
+resid_sub <- cbind(resid_sub, log(locations$total_counts))
+gene_counts <- cbind(gene_counts, log(locations$total_counts))
+colnames(resid_sub)[1001] <- colnames(gene_counts)[ncol(gene_counts)] <- "log_total_count"
+results <- run(locations[,2:3], resid_sub)
+head(results)
+```
+
+What are the most significant genes?
+```{r}
+results %>% 
+  arrange(qval) %>% 
+  select(g, l, qval) %>% 
+  head(10)
+```
+
+```{r}
+top_de <- results$g[order(results$qval)][1:4]
+# Plot the most significant genes
+df <- cbind(locations, gene_counts[,top_de])
+pls <- lapply(top_de, 
+              function(col) {
+                ggplot(df, aes_string("x", "y", color = col)) +
+                  geom_point() +
+                  coord_equal() +
+                  scale_color_viridis_c() +
+                  theme_dark()
+              })
+grid.arrange(grobs = pls, ncol = 2)
+```
+
+
+Contrast this to non-spatialDE genes
+```{r}
+bottom_de <- results$g[order(-results$qval)][1:4]
+# Plot the most significant genes
+df <- cbind(locations, gene_counts[,bottom_de])
+pls <- lapply(bottom_de, 
+              function(col) {
+                ggplot(df, aes_string("x", "y", color = paste0("`", col, "`"))) +
+                  geom_point() +
+                  coord_equal() +
+                  scale_color_viridis_c() +
+                  theme_dark()
+              })
+grid.arrange(grobs = pls, ncol = 2)
+```
+
+```{r}
+FSV_sig(results)
+```
+
+## Automatic expression histology
+```{r}
+# Get significant results from SpatialDE
+sig_res <- results %>% 
+  filter(qval < 0.05)
+```
+What length scales (`l`) are present?
+```{r}
+sig_res %>% 
+  group_by(l) %>% 
+  count()
+```
+
+```{r}
+mean(sig_res$l)
+```
+
+```{r}
+c(histology_results, patterns) %<-% aeh_spatial_patterns(locations[,2:3], resid_sub, sig_res, C = 3L, l = 1.2, verbosity = 1L)
+```
+
+```{r}
+histology_results
+```
+
+```{r}
+df <- cbind(locations, gene_counts[,top_de])
+pls <- lapply(top_de, 
+              function(col) {
+                ggplot(df, aes_string("x", "y", color = col)) +
+                  geom_point() +
+                  coord_equal() +
+                  scale_color_viridis_c() +
+                  theme_dark() +
+                  ggtitle(paste0("pattern ", histology_results$pattern[histology_results$g == col]))
+              })
+grid.arrange(grobs = pls, ncol = 2)
+```

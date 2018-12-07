@@ -1,13 +1,18 @@
 Package: SpatialDE
 Type: Package
-Title: What the Package Does (Title Case)
+Title: Statistical Test for Spatially Differentially Expressed Genes
 Version: 0.1.0
 Author: Who wrote it
 Maintainer: The package maintainer <yourself@somewhere.net>
-Description: More about what it does (maybe more than one line)
-    Use four spaces when indenting paragraphs within the Description.
+Description: This is a wrapper of the SpatialDE Python package
 License: What license is it under?
 Encoding: UTF-8
 LazyData: true
-Imports: Rcpp (>= 0.12.13)
+Imports: reticulate (>= 1.10)
 LinkingTo: Rcpp
+Suggests: 
+    testthat,
+    knitr,
+    rmarkdown
+VignetteBuilder: knitr
+RoxygenNote: 6.1.1
