@@ -1,32 +1,71 @@
 ---
-title: "SpatialDE on Mouse Olfactory Bulb Data"
+title: "SpatialDE on Mouse Olfactory Bulb Data (matrix)"
 author: "Lambda Moses"
 date: "`r Sys.Date()`"
-output: rmarkdown::html_vignette
+output: BiocStyle::html_document
 vignette: >
-  %\VignetteIndexEntry{SpatialDE on Mouse Olfactory Bulb Data}
+  %\VignetteIndexEntry{SpatialDE on Mouse Olfactory Bulb Data (matrix)}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
 
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+## Introduction
+In recent years, a variety of techniques have been developed for high throughput spatial profiling of gene expression, such as seqFISH, MERFISH, STARmap, Spatial Transcriptomics, and osmFISH, to name a few. Then the questions arise: How shall we determine which genes really have interesting spatial patterns? What gene expression patterns are there in this tissue? To answer these questions, [Svensson el al.](https://doi.org/10.1038/nmeth.4636) developed a method called `SpatialDE`. This package is a wrapper of the original Python package `SpatialDE`, making it available to R users. 
+
+The functionality of this package consists of mainly two parts. First, the statistical test based on Gaussian process regression that tests for spatially differential expression of genes, i.e. whether spatial location significantly contributes to variation in gene expression. Second, "automatic expression histology" (AEH), which classifies spatial patterns of gene exprerssion.
+
+This vignette demonstrates how to run `SpatialDE` on plain matrices. We have also implemented methods for `SingleCellExperiment` and `Seurat`, see the other vignettes for a tutorial on running `SpatialDE` on those objects. The dataset we use here is a subset of Spatial Transcriptomics data of the mouse olfactory bulb from [Stahl el al.](https://doi.org/10.1126/science.aaf2403).
+
+## Installation
+As this package is a wrapper, you need the Python module `SpatialDE` in order to use this package. First, you need to install Python. We recommend the [Anaconda distribution](https://www.anaconda.com/download/). To install the Python module, you can use in the terminal
+
+```{bash, eval = FALSE}
+pip install spatialde
+```
+
+This method is recommended if you also want to use `SpatialDE` from Python. If there're more than one Python versions installed on your computer, please make sure that R is using the version to which the Python module `SpatialDE` was installed. You can find out which version of Python to which `SpatialDE` is installed by `which python` in the terminal, and then use `use_python` to tell `reticulate` to use that version. We use the package `reticulate` to call Python functions from R. Also note that please run `use_python` before running any other `reticulate` command and before running `library(SpatialDE)`. Otherwise, the default version, which may not be the version you want, will be used, and you will have to restart the R session in order to change the version of Python used. 
+
+Alternatively, you can directly install the Python module within R by
+
+```{r, eval=FALSE}
+reticulate::py_install("spatialde", pip = TRUE)
+```
+
+This method is recommended if you only use R. This will install the `SpatialDE` Python module in a virtual environment, which is by default `r-reticulate`. You can change the virtual environment with the argument `envname` in `py_install`. Note that the virtual environment is different from where Python packages are installed via `conda` or `pip`. The purpose of the virtual environment is to make sure that multiple R packages that have Python dependencies share the same environment.
+
+Then you can install this R package by 
+```{r, eval=FALSE}
+devtools::install_github("lambdamoses/SpatialDE/R-package/SpatialDE")
+```
+
+## Normalize data
 ```{r}
-library(tidyverse)
-library(varistran)
-library(limma)
+library(SpatialDE)
+library(dplyr)
+library(ggplot2)
 library(reticulate)
-library(gridExtra)
+library(Linnorm)
 library(zeallot)
 theme_set(theme_bw())
-use_python("/Users/lambda/anaconda3/bin/python")
-py_config()
 ```
 
 ```{r}
-gene_counts <- read_csv("../../../Analysis/MouseOB/data/Rep11_MOB_0.csv")
-locations <- read_csv("../../../Analysis/MouseOB/MOB_sample_info.csv")
-gene_counts <- gene_counts %>% 
-  semi_join(locations, by = "X1")
+# Load the data
+# Gene counts in each cell
+data("mouseob")
+# Locations of the cells
+data("locations")
+str(mouseob)
+str(locations)
 ```
+The genes are in columns and the spots are in rows in the matrix. [Spatial Transcriptomics](http://www.spatialtranscriptomicsresearch.org) is not single cell resolution; it uses an array of spots on a microscope slide with barcodes to capture gene expression as well as the locations.
 
 ```{r, fig.height=3, fig.align='center'}
 ggplot(locations, aes(x, y)) +
@@ -37,78 +76,82 @@ ggplot(locations, aes(x, y)) +
 ```{r}
 # Remove genes with low expression
 # Total expression
-gene_tot_counts <- colSums(gene_counts[,-1])
-gene_counts <- gene_counts[,c(TRUE, gene_tot_counts >= 3)]
+gene_tot_counts <- colSums(mouseob > 0)
+mouseob <- mouseob[,gene_tot_counts >= 3]
 ```
 
+To normalize data and regress out library size, we're using the package `Linnorm`; see [Shun et. al](https://dx.doi.org/10.1093/nar/gkx828). `SpatialDE` assumes that the data is properly normalized.
 ```{r}
 # Normalize data
-dat <- vst(t(as.matrix(gene_counts[,-1])))
-# Regress out total counts
-resid_expr <- t(removeBatchEffect(dat, covariates = log(locations$total_counts)))
+normed <- Linnorm(mouseob, RowSamples = TRUE)
+```
+
+## Run `SpatialDE`
+`SpatialDE` fits 3 different kinds of models to the data: general (or Gaussian), linear, and periodic, that may capture different types of patterns. Then the model that best fits is chosen; if none of the models fit, then the gene is deemed not to have significant spatial variation. In the `RunSpatialDE` function, by default, only the general model is used, and the other 2 models are tried in the `ModelSearch` function. But you can use the `kernel_space` argument to also fit the periodic and linear models with the `RunSpatialDE` function. See documentation for this function for more detail.
+```{r, results='hide'}
+# Add log total counts as a covariate
+normed <- cbind(normed, log(locations$total_counts))
+mouseob <- cbind(mouseob, log(locations$total_counts))
+n <- ncol(normed)
+colnames(normed)[n] <- colnames(mouseob)[n] <- "log_total_count"
+# Run SpatialDE
+results <- RunSpatialDE(normed, locations[,2:3], row_sample = TRUE)
 ```
 
 ```{r}
-# Randomly sample 1000 genes to run SpatialDE
-resid_sub <- resid_expr[,sample(1:ncol(resid_expr), 1000)]
-# Add log total counts as a covariate
-resid_sub <- cbind(resid_sub, log(locations$total_counts))
-gene_counts <- cbind(gene_counts, log(locations$total_counts))
-colnames(resid_sub)[1001] <- colnames(gene_counts)[ncol(gene_counts)] <- "log_total_count"
-results <- run(locations[,2:3], resid_sub)
 head(results)
 ```
+In this output, `FSV` means the fraction of variance that is explained by spatial variance. The column `l` means the lengthscale of of the model fit. The column `qval` is the adjusted p-value of the model fit. See documentation of the `run` function for a description of other columns.
 
 What are the most significant genes?
 ```{r}
 results %>% 
   arrange(qval) %>% 
   select(g, l, qval) %>% 
-  head(10)
+  head()
 ```
 
 ```{r}
 top_de <- results$g[order(results$qval)][1:4]
 # Plot the most significant genes
-df <- cbind(locations, gene_counts[,top_de])
-pls <- lapply(top_de, 
-              function(col) {
-                ggplot(df, aes_string("x", "y", color = col)) +
-                  geom_point() +
-                  coord_equal() +
-                  scale_color_viridis_c() +
-                  theme_dark()
-              })
-grid.arrange(grobs = pls, ncol = 2)
+MultiGenePlot(normed, locations, top_de, row_sample = TRUE)
 ```
-
 
 Contrast this to non-spatialDE genes
 ```{r}
 bottom_de <- results$g[order(-results$qval)][1:4]
 # Plot the most significant genes
-df <- cbind(locations, gene_counts[,bottom_de])
-pls <- lapply(bottom_de, 
-              function(col) {
-                ggplot(df, aes_string("x", "y", color = paste0("`", col, "`"))) +
-                  geom_point() +
-                  coord_equal() +
-                  scale_color_viridis_c() +
-                  theme_dark()
-              })
-grid.arrange(grobs = pls, ncol = 2)
+MultiGenePlot(normed, locations, bottom_de, row_sample = TRUE)
 ```
 
-```{r}
-FSV_sig(results)
-```
-
-## Automatic expression histology
+## Model search
+Now see whether the periodic and linear models would fit the significant genes from `RunSpatialDE` better than the general model. By default, the function `ModelSearch` takes the results from `RunSpatialDE` and tries the periodic and linear models.
 ```{r}
 # Get significant results from SpatialDE
 sig_res <- results %>% 
   filter(qval < 0.05)
 ```
+
+```{r, results='hide'}
+# Also try the linear and periodic models
+ms_results <- ModelSearch(normed, locations[,2:3], sig_res, row_sample = TRUE)
+```
+
+```{r}
+ms_results
+```
+
+```{r}
+FSV_sig(results, do_label = TRUE, ms_results = ms_results, covariate_names = "log_total_count")
+```
+
+There're 2 genes for which the periodic model fit better than the general model
+```{r, fig.height=3}
+periodic <- ms_results$g[ms_results$model == "PER"]
+MultiGenePlot(normed, locations, periodic, row_sample = TRUE)
+```
+
+## Automatic expression histology
 What length scales (`l`) are present?
 ```{r}
 sig_res %>% 
@@ -119,25 +162,30 @@ sig_res %>%
 ```{r}
 mean(sig_res$l)
 ```
-
+Since the Python function called by `AEHSpatialPatterns` uses random number generators (in Numpy), who won't be affected by R's `set.seed`, we use `py_set_seed` from package `reticulate` for reproducible results.
 ```{r}
-c(histology_results, patterns) %<-% aeh_spatial_patterns(locations[,2:3], resid_sub, sig_res, C = 3L, l = 1.2, verbosity = 1L)
+py_set_seed(456)
+c(histology_results, patterns) %<-% AEHSpatialPatterns(normed, locations[,2:3], sig_res, C = 3L, l = 1.5, verbosity = 1L, row_sample = TRUE)
 ```
 
 ```{r}
-histology_results
+histology_results %>% 
+  arrange(pattern)
 ```
 
 ```{r}
-df <- cbind(locations, gene_counts[,top_de])
-pls <- lapply(top_de, 
-              function(col) {
-                ggplot(df, aes_string("x", "y", color = col)) +
-                  geom_point() +
-                  coord_equal() +
-                  scale_color_viridis_c() +
-                  theme_dark() +
-                  ggtitle(paste0("pattern ", histology_results$pattern[histology_results$g == col]))
-              })
-grid.arrange(grobs = pls, ncol = 2)
+# Select top gene from each pattern to plot
+(plot_genes <- histology_results %>% 
+  left_join(sig_res, by = "g") %>% 
+  group_by(pattern) %>% 
+  summarize(g = g[which.min(qval)]))
 ```
+
+```{r}
+MultiGenePlot(normed, locations, plot_genes$g, paste0("pattern", plot_genes$pattern), row_sample = TRUE)
+```
+
+```{r}
+sessionInfo()
+```
+

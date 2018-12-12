@@ -5,7 +5,7 @@
 \title{Plot Fraction Spatial Variance vs Q-value}
 \usage{
 FSV_sig(results, ms_results = NULL, certain_only = FALSE,
-  do_label = TRUE, covariate_names = "log_total_count")
+  log_x = FALSE, do_label = TRUE, covariate_names = NULL)
 }
 \arguments{
 \item{results}{Results from SpatialDE.}
@@ -15,9 +15,11 @@ FSV_sig(results, ms_results = NULL, certain_only = FALSE,
 
 \item{certain_only}{Only plot results with narrow 95\% confidence interval.}
 
+\item{log_x}{Whether to display x axis in log scale.}
+
 \item{do_label}{Display gene names for statistically significant genes, default to \code{TRUE}.}
 
-\item{covariate_names}{Names of covariates as a reference.}
+\item{covariate_names}{Names of covariates as a reference, default to \code{NULL}.}
 }
 \value{
 A \code{ggplot2} object.

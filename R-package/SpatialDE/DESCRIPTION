@@ -1,18 +1,39 @@
 Package: SpatialDE
 Type: Package
 Title: Statistical Test for Spatially Differentially Expressed Genes
-Version: 0.1.0
-Author: Who wrote it
-Maintainer: The package maintainer <yourself@somewhere.net>
-Description: This is a wrapper of the SpatialDE Python package
-License: What license is it under?
+Version: 0.99.0
+Author@R: c(person("Valentine", "Svensson", email = "vale@caltech.edu", role = "aut"),
+          person("Lambda", "Moses", email = "dlu2@caltech.edu", role = c("aut", "cre")))
+Description: This is a wrapper of the SpatialDE Python package. It not only performs a statistical test to identify spatially differentially expressed genes, but also classifies the patterns found with automatic exprerssion histology (AEH).
 Encoding: UTF-8
-LazyData: true
-Imports: reticulate (>= 1.10)
-LinkingTo: Rcpp
+LazyData: false
+Imports: 
+    reticulate (>= 1.10),
+    ggplot2 (>= 3.1.0),
+    SingleCellExperiment (>= 1.4.0),
+    dplyr (>= 0.7.8),
+    gridExtra (>= 2.3),
+    magrittr (>= 1.5),
+    scales (>= 1.0.0),
+    zeallot (>= 0.1.0),
+    Linnorm (>= 2.6.0),
+    Seurat (>= 2.3.1)
 Suggests: 
     testthat,
     knitr,
-    rmarkdown
+    rmarkdown,
+    BiocStyle
+SystemRequirements:
+    Python (>= 2.7.0)
+biocViews: 
+    Transcriptomics,
+    SingleCell
+BugReports: https://github.com/lambdamoses/SpatialDE/tree/master/R-package/SpatialDE
+URL: https://github.com/lambdamoses/SpatialDE/tree/master/R-package/SpatialDE
 VignetteBuilder: knitr
 RoxygenNote: 6.1.1
+Collate: 
+    'data_doc.R'
+    'wrapper.R'
+    'plot.R'
+    'utils.R'

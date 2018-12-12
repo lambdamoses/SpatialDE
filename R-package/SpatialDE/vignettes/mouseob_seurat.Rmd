@@ -1,0 +1,155 @@
+---
+title: "SpatialDE on Mouse Olfactory Bulb Data (Seurat)"
+author: "Lambda Moses"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{SpatialDE on Mouse Olfactory Bulb Data (Seurat)}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+For an introduction to what `SpatialDE` is and how to install it, see the [vignette on running SpatialDE on matrices](mouseob.html). In this vignette, we run `SpatialDE` on a `Seurat` object. Note that while Seurat 3.0 is to be released soon, with many really cool features, we are using Seurat 2.3.4 -- the CRAN version -- here, because Bioconductor requires that all dependencies must be from CRAN or Bioconductor. I'll update this vignette once Seurat 3.0 gets to CRAN.
+
+## Normalize data
+```{r, message=FALSE}
+library(SpatialDE)
+library(dplyr)
+library(ggplot2)
+library(reticulate)
+library(Linnorm)
+library(zeallot)
+library(Seurat)
+theme_set(theme_bw())
+```
+
+```{r}
+py_config()
+```
+
+```{r}
+# Load the data
+# Gene counts in each cell
+data("mouseob")
+# Locations of the cells
+data("locations")
+str(mouseob)
+str(locations)
+```
+
+We can use `NormalizeData` from `Seurat` to do the classical `log1p` normalization, we're using a more sophisticated data normalization method called `Linnorm` here. `SpatialDE` will use the normalized data in slot `data` rather than scaled data.
+```{r}
+# Create Seurat object
+seu <- CreateSeuratObject(t(mouseob), min.cells = 3)
+seu@data <- Linnorm(seu@raw.data)
+```
+
+## Run `SpatialDE`
+```{r}
+# Add log total counts to metadata
+locations <- locations %>% 
+  mutate(log_total_counts = log(total_counts))
+rownames(locations) <- locations$X1
+seu <- AddMetaData(seu, locations)
+```
+
+```{r, results='hide'}
+results <- RunSpatialDE(seu, covariates = "log_total_counts")
+```
+
+```{r}
+head(results)
+```
+
+What are the most significant genes?
+```{r}
+results %>% 
+  arrange(qval) %>% 
+  select(g, l, qval) %>% 
+  head()
+```
+
+```{r}
+top_de <- results$g[order(results$qval)][1:4]
+# Plot the most significant genes
+MultiGenePlot(seu, genes_plot = top_de)
+```
+
+Contrast this to non-spatialDE genes
+```{r}
+bottom_de <- results$g[order(-results$qval)][1:4]
+# Plot the most significant genes
+MultiGenePlot(seu, bottom_de)
+```
+
+## Model search
+```{r}
+# Get significant results from SpatialDE
+sig_res <- results %>% 
+  filter(qval < 0.05)
+```
+
+```{r, results='hide'}
+# Also try the linear and periodic models
+ms_results <- ModelSearch(seu, sig_res, covariates = "log_total_counts")
+```
+
+```{r}
+ms_results
+```
+
+```{r}
+FSV_sig(results, do_label = TRUE, ms_results = ms_results, covariate_names = "log_total_counts")
+```
+
+There're 2 genes for which the periodic model fit better than the general model
+```{r, fig.height=3}
+periodic <- ms_results$g[ms_results$model == "PER"]
+MultiGenePlot(seu, periodic)
+```
+
+## Automatic expression histology
+What length scales (`l`) are present?
+```{r}
+sig_res %>% 
+  group_by(l) %>% 
+  dplyr::count()
+```
+
+```{r}
+mean(sig_res$l)
+```
+
+```{r}
+py_set_seed(456)
+c(histology_results, patterns) %<-% AEHSpatialPatterns(seu, sig_res, covariates = "log_total_counts",
+                                                       C = 3L, l = 1.5, verbosity = 1L)
+```
+
+```{r}
+histology_results %>% 
+  arrange(pattern)
+```
+
+```{r}
+# Select top gene from each pattern to plot
+(plot_genes <- histology_results %>% 
+  left_join(sig_res, by = "g") %>% 
+  group_by(pattern) %>% 
+  summarize(g = g[which.min(qval)]))
+```
+
+```{r}
+MultiGenePlot(seu, genes_plot = plot_genes$g, facet_titles = paste0("pattern", plot_genes$pattern))
+```
+
+```{r}
+sessionInfo()
+```
