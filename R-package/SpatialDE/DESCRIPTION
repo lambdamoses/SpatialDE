@@ -16,13 +16,13 @@ Imports:
     magrittr (>= 1.5),
     scales (>= 1.0.0),
     zeallot (>= 0.1.0),
-    Linnorm (>= 2.6.0),
     Seurat (>= 2.3.1)
 Suggests: 
     testthat,
     knitr,
     rmarkdown,
-    BiocStyle
+    BiocStyle,
+    Linnorm (>= 2.6.0)
 SystemRequirements:
     Python (>= 2.7.0)
 biocViews: 
